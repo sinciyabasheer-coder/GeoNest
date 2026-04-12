@@ -1,0 +1,54 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="pinGradient" x1="118" y1="48" x2="398" y2="452" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1F5FBF"/>
+      <stop offset="0.55" stop-color="#2D8CFF"/>
+      <stop offset="1" stop-color="#163D8B"/>
+    </linearGradient>
+    <linearGradient id="cityGradient" x1="156" y1="116" x2="358" y2="316" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1BA6E5"/>
+      <stop offset="1" stop-color="#23459B"/>
+    </linearGradient>
+  </defs>
+  <path d="M256 34C175.411 34 110 99.4105 110 180C110 292.68 256 478 256 478C256 478 402 292.68 402 180C402 99.4105 336.589 34 256 34Z" fill="url(#pinGradient)"/>
+  <path d="M256 70C194.144 70 144 120.144 144 182C144 258.912 256 406 256 406C256 406 368 258.912 368 182C368 120.144 317.856 70 256 70Z" fill="white"/>
+  <path d="M184 164L222 130H294L330 164H312L288 144H226L202 164H184Z" fill="url(#cityGradient)"/>
+  <rect x="174" y="196" width="40" height="44" rx="2" fill="#23459B"/>
+  <rect x="218" y="170" width="52" height="78" rx="3" fill="#24A1DF"/>
+  <rect x="276" y="182" width="34" height="66" rx="3" fill="#23459B"/>
+  <rect x="316" y="192" width="30" height="56" rx="3" fill="#2D8CFF"/>
+  <rect x="188" y="206" width="6" height="8" fill="white"/>
+  <rect x="198" y="206" width="6" height="8" fill="white"/>
+  <rect x="188" y="220" width="6" height="8" fill="white"/>
+  <rect x="198" y="220" width="6" height="8" fill="white"/>
+  <rect x="232" y="182" width="8" height="10" fill="white"/>
+  <rect x="246" y="182" width="8" height="10" fill="white"/>
+  <rect x="232" y="198" width="8" height="10" fill="white"/>
+  <rect x="246" y="198" width="8" height="10" fill="white"/>
+  <rect x="286" y="194" width="6" height="8" fill="white"/>
+  <rect x="296" y="194" width="6" height="8" fill="white"/>
+  <rect x="286" y="208" width="6" height="8" fill="white"/>
+  <rect x="296" y="208" width="6" height="8" fill="white"/>
+  <rect x="324" y="204" width="6" height="8" fill="white"/>
+  <rect x="334" y="204" width="6" height="8" fill="white"/>
+  <rect x="324" y="218" width="6" height="8" fill="white"/>
+  <rect x="334" y="218" width="6" height="8" fill="white"/>
+  <path d="M158 250C196 232 252 236 302 244C330 248 352 252 374 248C350 270 318 280 288 280H206C184 280 170 270 158 250Z" fill="url(#cityGradient)"/>
+  <path d="M286 252C302 250 322 252 342 258C330 272 312 278 292 278H264C266 266 274 256 286 252Z" fill="#76C044"/>
+  <path d="M180 296C198 286 224 286 242 296" stroke="#29A8E0" stroke-width="9" stroke-linecap="round"/>
+  <path d="M178 316C196 306 224 306 244 316" stroke="#29A8E0" stroke-width="9" stroke-linecap="round"/>
+  <path d="M182 336C202 326 226 326 244 336" stroke="#29A8E0" stroke-width="9" stroke-linecap="round"/>
+  <path d="M282 330C292 316 308 316 318 330C328 344 344 344 354 330" stroke="#5BBE7A" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M304 300C316 306 318 320 312 332" stroke="#29A8E0" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="212" cy="366" r="8" fill="#163D8B"/>
+  <path d="M212 348V356" stroke="#163D8B" stroke-width="4" stroke-linecap="round"/>
+  <path d="M194 366H202" stroke="#163D8B" stroke-width="4" stroke-linecap="round"/>
+  <path d="M222 366H230" stroke="#163D8B" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="256" cy="376" r="10" fill="#163D8B"/>
+  <circle cx="238" cy="384" r="8" fill="#163D8B"/>
+  <circle cx="274" cy="384" r="8" fill="#163D8B"/>
+  <path d="M228 400C228 388.954 236.954 380 248 380H264C275.046 380 284 388.954 284 400V404H228V400Z" fill="#163D8B"/>
+  <path d="M326 350V380" stroke="#163D8B" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="326" cy="386" r="10" stroke="#163D8B" stroke-width="6"/>
+  <path d="M338 350C338 343.373 343.373 338 350 338C356.627 338 362 343.373 362 350" stroke="#163D8B" stroke-width="6" stroke-linecap="round"/>
+</svg>
