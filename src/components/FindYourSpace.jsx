@@ -10,7 +10,8 @@ import {
   Map as MapIcon,
   RotateCcw,
 } from "lucide-react";
-import { LayersControl, MapContainer, Polygon, Popup, TileLayer, useMap } from "react-leaflet";
+import { LayersControl, MapContainer, Polygon, GeoJSON, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import axios from "axios";
 import SectionReveal from "./SectionReveal";
 import { chennaiZones, criteriaLabels } from "../data/chennaiZones";
 
@@ -151,11 +152,88 @@ function MapResizeHandler() {
   return null;
 }
 
+// Spies on layer toggles so we can render dynamic legends
+function MapEventHandler({ setActiveLayers }) {
+  useMapEvents({
+    overlayadd(e) {
+      setActiveLayers((prev) => new Set([...prev, e.name]));
+    },
+    overlayremove(e) {
+      setActiveLayers((prev) => {
+        const updated = new Set(prev);
+        updated.delete(e.name);
+        return updated;
+      });
+    },
+  });
+  return null;
+}
+
 function FindYourSpace() {
   const [purpose, setPurpose] = useState("Residential");
   const [weights, setWeights] = useState(purposeWeights.Residential);
   const [result, setResult] = useState(null);
   const [isFloatingResultOpen, setIsFloatingResultOpen] = useState(true);
+  const [activeLayers, setActiveLayers] = useState(new Set());
+  const defaultRankedZones = useMemo(() => {
+    // We instantiate a default fallback view until the backend generates the true spatial overlay
+    return chennaiZones.map(zone => {
+      // Create a default initial score simply to prevent UI crashes before calculation
+      const initialScore = criteriaMeta.reduce((t, c) => t + (zone.criteriaScores[c.key] * (1/6)), 0);
+      return {
+        ...zone,
+        score: initialScore,
+        tone: suitabilityTone(initialScore)
+      };
+    }).sort((a, b) => b.score - a.score);
+  }, []);
+
+  const [rankedZones, setRankedZones] = useState(defaultRankedZones);
+  const [isComputing, setIsComputing] = useState(false);
+
+  // --- BACKEND INTEGRATION STATE ---
+  const [apiData, setApiData] = useState({
+    population: null,
+    roads: null,
+    aqi: null,
+    landCost: null,
+    water: null,
+    flood: null
+  });
+
+  // Fetch all GIS datasets from our Node.js Backend smoothly on component mount
+  useEffect(() => {
+    const fetchBackendData = async () => {
+      try {
+        const baseURL = "http://localhost:3000/api/datasets";
+        
+        // Fetch sequentially or in parallel; parallel is faster
+        const [popRes, roadRes, aqiRes, landRes, waterRes, floodRes] = await Promise.all([
+          axios.get(`${baseURL}/population`).catch(() => ({ data: null })),
+          axios.get(`${baseURL}/roads`).catch(() => ({ data: null })),
+          axios.get(`${baseURL}/aqi`).catch(() => ({ data: null })),
+          axios.get(`${baseURL}/land-cost`).catch(() => ({ data: null })),
+          axios.get(`${baseURL}/water`).catch(() => ({ data: null })),
+          axios.get(`${baseURL}/flood`).catch(() => ({ data: null }))
+        ]);
+
+        setApiData({
+          population: popRes.data,
+          roads: roadRes.data,
+          aqi: aqiRes.data,
+          landCost: landRes.data,
+          water: waterRes.data,
+          flood: floodRes.data
+        });
+        
+        console.log("Successfully loaded simulated GIS APIs:", popRes.data, roadRes.data);
+      } catch (err) {
+        console.error("Backend offline or failed to fetch GIS data:", err);
+      }
+    };
+    
+    fetchBackendData();
+  }, []);
 
   useEffect(() => {
     setWeights(purposeWeights[purpose]);
@@ -168,24 +246,8 @@ function FindYourSpace() {
     [weights]
   );
 
-  const rankedZones = useMemo(
-    () =>
-      chennaiZones
-        .map((zone) => {
-          const score = criteriaMeta.reduce(
-            (total, criterion) => total + zone.criteriaScores[criterion.key] * weights[criterion.key],
-            0
-          );
-
-          return {
-            ...zone,
-            score,
-            tone: suitabilityTone(score),
-          };
-        })
-        .sort((first, second) => second.score - first.score),
-    [weights]
-  );
+  // Remove the old synchronous useMemo for rankedZones.
+  // The map and results will now mathematically rely on the Backend API!
 
   const visibleZones = useMemo(() => rankedZones.filter((zone) => zone.score >= 0.55).slice(0, 4), [rankedZones]);
   const bestZone = visibleZones[0] ?? rankedZones[0];
@@ -203,13 +265,37 @@ function FindYourSpace() {
     setIsFloatingResultOpen(true);
   };
 
-  const calculateSuitability = () => {
-    setResult({
-      score: bestZone.score,
-      category: getCategory(bestZone.score),
-      zone: bestZone.name,
-    });
-    setIsFloatingResultOpen(true);
+  const calculateSuitability = async () => {
+    setIsComputing(true);
+    try {
+      // POST the dynamic weights matrix to the advanced backend Spatial Engine
+      const res = await axios.post("http://localhost:3000/api/suitability/calculate", {
+        weights: weights
+      });
+
+      if (res.data.zones) {
+        // Map backend scores back into UI Tone logic
+        const formattedZones = res.data.zones.map(z => ({
+          ...z,
+          tone: suitabilityTone(z.score)
+        }));
+        setRankedZones(formattedZones);
+        
+        // Update popup result UI
+        const newBest = formattedZones[0];
+        setResult({
+          score: newBest.score,
+          category: getCategory(newBest.score),
+          zone: newBest.name,
+        });
+        setIsFloatingResultOpen(true);
+      }
+    } catch (err) {
+      alert("Error: Ensure your Node backend server is running offline!");
+      console.error(err);
+    } finally {
+      setIsComputing(false);
+    }
   };
 
   const downloadPdf = () => {
@@ -341,8 +427,8 @@ function FindYourSpace() {
               </div>
 
               <div className="search-actions">
-                <button className="primary-button" type="button" onClick={calculateSuitability}>
-                  Calculate Suitability
+                <button className="primary-button" type="button" onClick={calculateSuitability} disabled={isComputing}>
+                  {isComputing ? 'Calculating Spatial Overlays...' : 'Calculate Suitability'}
                 </button>
                 <button className="secondary-button" type="button" onClick={resetWeights}>
                   <RotateCcw size={16} />
@@ -395,6 +481,43 @@ function FindYourSpace() {
                   <span><i style={{ background: "#f59e0b" }} /> Moderate</span>
                   <span><i style={{ background: "#ef4444" }} /> Low</span>
                 </div>
+                
+                {/* Dynamically expanding Legend System for Layer checking */}
+                {activeLayers.has("☁️ Live Data: AQI Suitability Hex-Grid") && (
+                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
+                    <span className="info-chip">Air Quality Suitability</span>
+                    <span><i style={{ background: "#22c55e", opacity: 0.8 }} /> Excellent</span>
+                    <span><i style={{ background: "#84cc16", opacity: 0.8 }} /> Good</span>
+                    <span><i style={{ background: "#f59e0b", opacity: 0.8 }} /> Satisfactory</span>
+                    <span><i style={{ background: "#ef4444", opacity: 0.8 }} /> Moderate/Poor</span>
+                    <span><i style={{ background: "#b91c1c", opacity: 0.8 }} /> Unhealthy</span>
+                  </div>
+                )}
+                
+                {activeLayers.has("☁️ Live Data: CGWB Water Quality") && (
+                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
+                    <span className="info-chip">Water Salinity (TDS)</span>
+                    <span><i style={{ background: "#0ea5e9", opacity: 0.8, borderRadius: "50%" }} /> Fresh Recharge</span>
+                    <span><i style={{ background: "#ef4444", opacity: 0.8, borderRadius: "50%" }} /> Saline / Hard Water</span>
+                  </div>
+                )}
+                
+                {activeLayers.has("☁️ Live Data: Flood Risk Hotspots") && (
+                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
+                    <span className="info-chip">Stagnation Risk</span>
+                    <span><i style={{ background: "#1e3a8a", opacity: 0.8, borderRadius: "50%" }} /> Low Risk</span>
+                    <span><i style={{ background: "#93c5fd", opacity: 0.8, borderRadius: "50%" }} /> Frequent Logging</span>
+                  </div>
+                )}
+                
+                {activeLayers.has("☁️ Live Data: Road Accessibility Network") && (
+                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
+                    <span className="info-chip">Road Network Accessibility</span>
+                    <span><i style={{ background: "#22c55e", height: "3px", width: "16px", borderRadius: "1px", position: "relative", top: "-2px" }} /> High Connectivity</span>
+                    <span><i style={{ background: "#f59e0b", height: "3px", width: "16px", borderRadius: "1px", position: "relative", top: "-2px" }} /> Moderate Connectivity</span>
+                  </div>
+                )}
+
               </div>
 
               <div className="workspace-map-frame">
@@ -407,6 +530,7 @@ function FindYourSpace() {
                     style={{ height: "100%", width: "100%" }}
                   >
                     <MapResizeHandler />
+                    <MapEventHandler setActiveLayers={setActiveLayers} />
                     <LayersControl position="topright">
                       <LayersControl.BaseLayer checked name="OpenStreetMap">
                         <TileLayer
@@ -442,6 +566,113 @@ function FindYourSpace() {
                           </Polygon>
                         </LayersControl.Overlay>
                       ))}
+
+                      {/* Dynamic API Layers injected perfectly from the Backend Server */}
+                      {apiData.population && (
+                        <LayersControl.Overlay name="☁️ Live Data: Population Density Nodes">
+                          <GeoJSON 
+                            data={apiData.population} 
+                            pointToLayer={(feature, latlng) => {
+                               // Make it a beautiful red circle marker
+                               return window.L.circleMarker(latlng, {
+                                 radius: 8,
+                                 fillColor: "#ef4444",
+                                 color: "#b91c1c",
+                                 weight: 2,
+                                 opacity: 1,
+                                 fillOpacity: 0.7
+                               }).bindPopup(`<strong>${feature.properties.microZoneName}</strong><br/>Category: ${feature.properties.demandCategory}<br/>Projected Population: ${feature.properties.projectedPopulation}`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
+
+                      {apiData.roads && (
+                        <LayersControl.Overlay name="☁️ Live Data: Road Accessibility Network">
+                          <GeoJSON 
+                            data={apiData.roads} 
+                            style={(feature) => ({
+                              color: feature.properties.accessibilityScore > 85 ? "#22c55e" : "#f59e0b",
+                              weight: feature.properties.accessibilityScore > 85 ? 4 : 2,
+                              opacity: 0.8
+                            })}
+                            onEachFeature={(feature, layer) => {
+                              layer.bindPopup(`<strong>${feature.properties.name}</strong><br/>Class: ${feature.properties.roadClass}<br/>Score: ${feature.properties.accessibilityScore}`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
+
+                      {apiData.aqi && (
+                        <LayersControl.Overlay name="☁️ Live Data: AQI Suitability Hex-Grid">
+                          <GeoJSON 
+                            data={apiData.aqi} 
+                            style={(feature) => {
+                              // Color code based on Suitability 1-5
+                              const colors = ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#22c55e"];
+                              return {
+                                color: colors[feature.properties.suitabilityScore - 1] || "#888",
+                                weight: 1,
+                                fillOpacity: 0.4
+                              };
+                            }}
+                            onEachFeature={(feature, layer) => {
+                              layer.bindPopup(`<strong>AQI Simulated Region</strong><br/>Air Quality: ${feature.properties.simulatedAqiRange}<br/>Suitability Score: ${feature.properties.suitabilityScore}/5`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
+
+                      {apiData.landCost && (
+                        <LayersControl.Overlay name="☁️ Live Data: Land Cost Points">
+                          <GeoJSON 
+                            data={apiData.landCost} 
+                            pointToLayer={(feature, latlng) => {
+                               return window.L.circleMarker(latlng, {
+                                 radius: 6,
+                                 fillColor: "#3b82f6",
+                                 color: "#1d4ed8",
+                                 weight: 2,
+                                 fillOpacity: 0.8
+                               }).bindPopup(`<strong>Micro-Market</strong><br/>Anchored to: ${feature.properties.closestAnchor}<br/>Price: ${feature.properties.priceFormatted} per sq.ft <br/>Suitability: ${feature.properties.suitabilityScore}/5`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
+
+                      {apiData.water && (
+                        <LayersControl.Overlay name="☁️ Live Data: CGWB Water Quality">
+                          <GeoJSON 
+                            data={apiData.water} 
+                            pointToLayer={(feature, latlng) => {
+                               return window.L.circleMarker(latlng, {
+                                 radius: 7,
+                                 fillColor: feature.properties.suitabilityScore < 3 ? "#ef4444" : "#0ea5e9",
+                                 color: "#fff",
+                                 weight: 2,
+                                 fillOpacity: 0.9
+                               }).bindPopup(`<strong>CGWB Observation Point</strong><br/>TDS: ${feature.properties.totalDissolvedSolids_mgL} mg/L<br/>Quality: ${feature.properties.qualityCategory}`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
+
+                      {apiData.flood && (
+                        <LayersControl.Overlay name="☁️ Live Data: Flood Risk Hotspots">
+                          <GeoJSON 
+                            data={apiData.flood} 
+                            pointToLayer={(feature, latlng) => {
+                               return window.L.circleMarker(latlng, {
+                                 radius: 5,
+                                 fillColor: feature.properties.suitabilityScore < 3 ? "#93c5fd" : "#1e40af",
+                                 color: "#1e3a8a",
+                                 weight: 1,
+                                 fillOpacity: 0.8
+                               }).bindPopup(`<strong>Reported Stagnation</strong><br/>Risk: ${feature.properties.riskLevel}<br/>History: ${feature.properties.historicalStagnation}`);
+                            }}
+                          />
+                        </LayersControl.Overlay>
+                      )}
                     </LayersControl>
                   </MapContainer>
                 </div>
@@ -466,14 +697,14 @@ function FindYourSpace() {
               <X size={16} />
             </button>
             <span className="floating-result-box__label">Top Suitable Area</span>
-            <strong>{result?.zone ?? bestZone.name}</strong>
+            <strong>{result?.zone ?? bestZone?.name ?? "Calculating..."}</strong>
             <div className="floating-result-box__meta">
-              <span>{(result?.score ?? bestZone.score).toFixed(2)}</span>
-              <span className={`result-pill result-pill--${(result?.category ?? getCategory(bestZone.score)).toLowerCase()}`}>
-                {result?.category ?? getCategory(bestZone.score)}
+              <span>{(result?.score ?? bestZone?.score ?? 0).toFixed(2)}</span>
+              <span className={`result-pill result-pill--${(result?.category ?? getCategory(bestZone?.score ?? 0)).toLowerCase()}`}>
+                {result?.category ?? getCategory(bestZone?.score ?? 0)}
               </span>
             </div>
-            <p>{bestZone.summary}</p>
+            <p>{bestZone?.summary}</p>
             <p className="workspace-muted">Current focus: {purpose}</p>
           </div>
         ) : null}
