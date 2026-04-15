@@ -45,7 +45,8 @@ function DataProducts() {
   const handleDownload = async (event, datasetId, format) => {
     event.preventDefault();
     try {
-      const response = await fetch(`http://localhost:3000/api/datasets/${datasetId}`);
+      const API_BASE = import.meta.env.VITE_API_URL || "/api";
+      const response = await fetch(`${API_BASE}/datasets/${datasetId}`);
       if (!response.ok) throw new Error("Dataset not ready");
       
       let blob;

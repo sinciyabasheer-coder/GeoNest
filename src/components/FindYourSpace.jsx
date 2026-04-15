@@ -184,7 +184,8 @@ function FindYourSpace() {
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const baseURL = "http://localhost:3000/api/datasets";
+        const API_BASE = import.meta.env.VITE_API_URL || "/api";
+        const baseURL = `${API_BASE}/datasets`;
         
         // Fetch sequentially or in parallel; parallel is faster
         const [popRes, roadRes, aqiRes, landRes, waterRes, floodRes] = await Promise.all([
@@ -243,8 +244,8 @@ function FindYourSpace() {
   const calculateSuitability = async () => {
     setIsComputing(true);
     try {
-      // POST the dynamic weights matrix to the advanced backend Spatial Engine
-      const res = await axios.post("http://localhost:3000/api/suitability/calculate", {
+      const API_BASE = import.meta.env.VITE_API_URL || "/api";
+      const res = await axios.post(`${API_BASE}/suitability/calculate`, {
         weights: weights
       });
 
