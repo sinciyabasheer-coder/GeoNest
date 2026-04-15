@@ -280,7 +280,8 @@ function FindYourSpace() {
         setIsFloatingResultOpen(true);
       }
     } catch (err) {
-      alert("Error: Ensure your Node backend server is running offline!");
+      const API_BASE = import.meta.env.VITE_API_URL || "/api";
+      alert(`API Connection Failed!\nAttempted to reach: ${API_BASE}\n\nIf the URL above says '/api', Vercel did not detect your environment variable. You must REDEPLOY in Vercel.\n\nRaw Error: ${err.message}`);
       console.error(err);
     } finally {
       setIsComputing(false);
