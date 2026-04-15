@@ -1544,3 +1544,39 @@ img {
     flex: 0 0 50%;
   }
 }
+
+.app-dashboard-layout {
+  display: grid;
+  grid-template-columns: 400px 1fr 380px;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--bg-deep);
+  color: #fff;
+}
+.dashboard-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  border-right: 1px solid rgba(255,255,255,0.08);
+}
+.dashboard-panel--right {
+  overflow-y: auto;
+  border-right: none;
+  border-left: 1px solid rgba(255,255,255,0.08);
+  background: rgba(8, 21, 33, 0.4);
+}
+.dashboard-panel--center {
+  position: relative;
+  overflow: hidden;
+  border-right: none;
+}
+.dashboard-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.dashboard-panel::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 4px;
+}
+

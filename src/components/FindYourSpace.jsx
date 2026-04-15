@@ -10,7 +10,7 @@ import {
   Map as MapIcon,
   RotateCcw,
 } from "lucide-react";
-import { LayersControl, MapContainer, Polygon, GeoJSON, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { LayersControl, MapContainer, Polygon, GeoJSON, Popup, TileLayer, useMap, useMapEvents, LayerGroup } from "react-leaflet";
 import axios from "axios";
 import SectionReveal from "./SectionReveal";
 import { chennaiZones, criteriaLabels } from "../data/chennaiZones";
@@ -110,27 +110,19 @@ const criteriaMeta = [
 ];
 
 const getCategory = (score) => {
-  if (score >= 0.75) {
-    return "High";
-  }
-
-  if (score >= 0.55) {
-    return "Medium";
-  }
-
-  return "Low";
+  if (score >= 0.80) return "Excellent";
+  if (score >= 0.70) return "Good";
+  if (score >= 0.60) return "Moderate";
+  if (score >= 0.50) return "Fair";
+  return "Poor";
 };
 
 const suitabilityTone = (score) => {
-  if (score >= 0.75) {
-    return { color: "#22c55e", label: "High suitability" };
-  }
-
-  if (score >= 0.58) {
-    return { color: "#f59e0b", label: "Moderate suitability" };
-  }
-
-  return { color: "#ef4444", label: "Low suitability" };
+  if (score >= 0.80) return { color: "#22c55e", label: "Excellent Suitability" }; // Green
+  if (score >= 0.70) return { color: "#84cc16", label: "Good Suitability" };      // Yellow-Green
+  if (score >= 0.60) return { color: "#f59e0b", label: "Moderate Suitability" };  // Orange
+  if (score >= 0.50) return { color: "#f97316", label: "Fair Suitability" };      // Dark Orange
+  return { color: "#ef4444", label: "Poor Suitability" };                         // Red
 };
 
 function MapResizeHandler() {
@@ -175,20 +167,7 @@ function FindYourSpace() {
   const [result, setResult] = useState(null);
   const [isFloatingResultOpen, setIsFloatingResultOpen] = useState(true);
   const [activeLayers, setActiveLayers] = useState(new Set());
-  const defaultRankedZones = useMemo(() => {
-    // We instantiate a default fallback view until the backend generates the true spatial overlay
-    return chennaiZones.map(zone => {
-      // Create a default initial score simply to prevent UI crashes before calculation
-      const initialScore = criteriaMeta.reduce((t, c) => t + (zone.criteriaScores[c.key] * (1/6)), 0);
-      return {
-        ...zone,
-        score: initialScore,
-        tone: suitabilityTone(initialScore)
-      };
-    }).sort((a, b) => b.score - a.score);
-  }, []);
-
-  const [rankedZones, setRankedZones] = useState(defaultRankedZones);
+  const [rankedZones, setRankedZones] = useState([]);
   const [isComputing, setIsComputing] = useState(false);
 
   // --- BACKEND INTEGRATION STATE ---
@@ -246,11 +225,7 @@ function FindYourSpace() {
     [weights]
   );
 
-  // Remove the old synchronous useMemo for rankedZones.
-  // The map and results will now mathematically rely on the Backend API!
-
-  const visibleZones = useMemo(() => rankedZones.filter((zone) => zone.score >= 0.55).slice(0, 4), [rankedZones]);
-  const bestZone = visibleZones[0] ?? rankedZones[0];
+  const bestZone = rankedZones[0] ?? null;
 
   const handleWeightChange = (key, value) => {
     setWeights((current) => ({
@@ -273,7 +248,7 @@ function FindYourSpace() {
         weights: weights
       });
 
-      if (res.data.zones) {
+      if (res.data.zones && res.data.zones.length > 0) {
         // Map backend scores back into UI Tone logic
         const formattedZones = res.data.zones.map(z => ({
           ...z,
@@ -281,12 +256,25 @@ function FindYourSpace() {
         }));
         setRankedZones(formattedZones);
         
+        // Reverse Geocode Top 3 to get localized Neighborhood place names (zoom=14)
+        const top3 = formattedZones.slice(0, 3);
+        const namePromises = top3.map(z => 
+           axios.get(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${z.coordinates.lat}&lon=${z.coordinates.lng}&zoom=14`)
+             .then(r => r.data.display_name ? r.data.display_name.split(',').slice(0, 3).join(',') : z.name)
+             .catch(() => z.name)
+        );
+        const resolvedNames = await Promise.all(namePromises);
+        
+        top3.forEach((z, i) => z.resolvedName = resolvedNames[i]);
+        
         // Update popup result UI
-        const newBest = formattedZones[0];
+        const newBest = top3[0];
         setResult({
           score: newBest.score,
           category: getCategory(newBest.score),
-          zone: newBest.name,
+          zone: newBest.resolvedName,
+          coordinates: newBest.coordinates,
+          runnerUps: top3.slice(1)
         });
         setIsFloatingResultOpen(true);
       }
@@ -298,418 +286,455 @@ function FindYourSpace() {
     }
   };
 
-  const downloadPdf = () => {
-    const pdf = new jsPDF({
-      orientation: "portrait",
-      unit: "pt",
-      format: "a4",
+  const getBase64ImageFromUrl = async (imageUrl) => {
+    const res = await axios.get(imageUrl, { responseType: 'blob' });
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(res.data);
     });
+  };
 
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(22);
-    pdf.text("GeoNest Find Your Space Report", 40, 52);
+  const downloadPdf = async () => {
+    setIsComputing(true);
+    try {
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "pt",
+        format: "a4",
+      });
 
-    pdf.setFont("helvetica", "normal");
-    pdf.setFontSize(11);
-    pdf.text("Study area: Chennai", 40, 82);
-    pdf.text(`Selected purpose: ${purpose}`, 40, 100);
-    pdf.text(
-      `Weights: ${criteriaMeta
-        .map((criterion) => `${criteriaLabels[criterion.key]} ${weights[criterion.key].toFixed(2)}`)
-        .join(" | ")}`,
-      40,
-      118,
-      { maxWidth: 520 }
-    );
+      pdf.setFillColor(30, 41, 59); // dark slate
+      pdf.rect(0, 0, 595, 80, "F");
 
-    if (result) {
-      pdf.text(`Calculated suitability score: ${result.score.toFixed(2)} (${result.category})`, 40, 146);
-      pdf.text(`Best matching area: ${result.zone}`, 40, 164);
-    }
-
-    pdf.setFont("helvetica", "bold");
-    pdf.text("Recommended suitable areas", 40, 204);
-
-    let yPosition = 230;
-
-    visibleZones.forEach((zone, index) => {
+      pdf.setTextColor(255, 255, 255);
       pdf.setFont("helvetica", "bold");
-      pdf.text(`${index + 1}. ${zone.name}`, 40, yPosition);
-      yPosition += 16;
+      pdf.setFontSize(24);
+      pdf.text("GeoNest Suitability Report", 40, 50);
 
+      pdf.setTextColor(50, 50, 50);
+      pdf.setFontSize(10);
       pdf.setFont("helvetica", "normal");
-      pdf.text(`Suitability score: ${zone.score.toFixed(2)}`, 52, yPosition);
-      yPosition += 16;
-      pdf.text(`Suitability class: ${zone.tone.label}`, 52, yPosition);
-      yPosition += 16;
-      pdf.text(zone.summary, 52, yPosition, { maxWidth: 500 });
-      yPosition += 28;
-    });
+      pdf.text(`Date Generated: ${new Date().toLocaleDateString()}`, 420, 110);
 
-    pdf.setFont("helvetica", "italic");
-    pdf.text(
-      "Note: Polygons are prototype suitability boundaries generated for demonstration.",
-      40,
-      yPosition + 12,
-      { maxWidth: 520 }
-    );
+      pdf.setFontSize(14);
+      pdf.setFont("helvetica", "bold");
+      pdf.text("Analysis Parameters", 40, 110);
+      
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(40, 120, 555, 120);
 
-    pdf.save("geonest-find-your-space-report.pdf");
+      pdf.setFontSize(11);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(`Target Purpose:`, 40, 140);
+      pdf.setFont("helvetica", "bold");
+      pdf.text(`${purpose}`, 140, 140);
+
+      let yPos = 160;
+      pdf.setFont("helvetica", "normal");
+      pdf.text("Criterion Weights:", 40, yPos);
+      yPos += 20;
+
+      const weightString = criteriaMeta
+          .map((c) => `${criteriaLabels[c.key]}: ${weights[c.key].toFixed(2)}`)
+          .join("  |  ");
+      
+      pdf.setFont("helvetica", "italic");
+      pdf.setFontSize(10);
+      const splitWeights = pdf.splitTextToSize(weightString, 515);
+      pdf.text(splitWeights, 40, yPos);
+      yPos += splitWeights.length * 15 + 20;
+
+      if (result) {
+        pdf.setDrawColor(200, 200, 200);
+        pdf.line(40, yPos, 555, yPos);
+        yPos += 25;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(16);
+        pdf.setTextColor(20, 83, 45); // dark green
+        pdf.text("Top Recommended Location", 40, yPos);
+        yPos += 25;
+
+        pdf.setFontSize(12);
+        pdf.setTextColor(50, 50, 50);
+        
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Area Name:", 40, yPos);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(`${result.zone}`, 120, yPos, { maxWidth: 400 });
+        yPos += 20;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Coordinates:", 40, yPos);
+        pdf.setFont("helvetica", "normal");
+        if (result.coordinates) {
+          pdf.text(`${result.coordinates.lat.toFixed(4)}, ${result.coordinates.lng.toFixed(4)}`, 120, yPos);
+        }
+        yPos += 20;
+
+        pdf.setFont("helvetica", "bold");
+        pdf.text("Final Score:", 40, yPos);
+        pdf.setFont("helvetica", "normal");
+        pdf.text(`${result.score.toFixed(2)} / 1.00  (${result.category})`, 120, yPos);
+        yPos += 30;
+      }
+
+      pdf.setDrawColor(200, 200, 200);
+      pdf.line(40, yPos, 555, yPos);
+      yPos += 25;
+
+      pdf.setTextColor(50, 50, 50);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.text("Alternative Suitable Zones", 40, yPos);
+      yPos += 25;
+
+      if (result && result.runnerUps) {
+        result.runnerUps.forEach((zone, index) => {
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(11);
+          pdf.text(`#${index + 2}: ${zone.resolvedName || zone.name}`, 40, yPos, { maxWidth: 500 });
+          yPos += 15;
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(10);
+          pdf.text(`Score: ${zone.score.toFixed(2)} | Class: ${zone.tone.label}`, 55, yPos);
+          yPos += 20;
+        });
+      }
+
+      pdf.setFont("helvetica", "italic");
+      pdf.setFontSize(9);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text("Generated by GeoNest Spatial Engine - Dynamic GIS Interpolation Framework", 40, yPos + 30);
+
+      pdf.save("geonest-find-your-space-report.pdf");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsComputing(false);
+    }
   };
 
   return (
-    <SectionReveal id="find-your-space" className="content-section content-section--workspace">
-      <div className="section-shell">
-        <div className="section-heading workspace-section-heading">
-          <span className="eyebrow">Find Your Space</span>
-          <h2>Explore build-ready zones with weighted suitability criteria, layered maps, and boundary outputs.</h2>
-          <p>
-            Select a purpose, adjust the importance of each core criterion, calculate suitability,
-            and inspect the delineated areas on an interactive Chennai map.
-          </p>
+    <div className="app-dashboard-layout">
+      {/* ------------------------ LEFT PANEL ------------------------ */}
+      <aside className="dashboard-panel dashboard-panel--left" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", height: "100%" }}>
+        <div className="workspace-card__heading" style={{ marginBottom: "1rem" }}>
+          <Filter size={20} />
+          <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Analysis Controls</h2>
         </div>
 
-        <div className="workspace-layout">
-          <aside className="workspace-panel-column">
-            <div className="workspace-card workspace-card--dark">
-              <div className="workspace-card__heading">
-                <Filter size={18} />
-                <h3>Analysis controls</h3>
-              </div>
+        <label className="field-group" htmlFor="buildType">
+          <span style={{ fontSize: "0.9rem", opacity: 0.9 }}>Select Purpose</span>
+          <div className="select-wrap" style={{ marginBottom: "0.5rem" }}>
+            <select id="buildType" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+              {Object.keys(purposeWeights).map((purposeOption) => (
+                <option key={purposeOption} value={purposeOption}>
+                  {purposeOption}
+                </option>
+              ))}
+            </select>
+            <span className="select-wrap__icon" aria-hidden="true">
+              <ChevronDown size={18} />
+            </span>
+          </div>
+        </label>
 
-              <label className="field-group" htmlFor="buildType">
-                <span>Select Purpose</span>
-                <div className="select-wrap">
-                  <select id="buildType" value={purpose} onChange={(event) => setPurpose(event.target.value)}>
-                    {Object.keys(purposeWeights).map((purposeOption) => (
-                      <option key={purposeOption} value={purposeOption}>
-                        {purposeOption}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="select-wrap__icon" aria-hidden="true">
-                    <ChevronDown size={18} />
-                  </span>
-                </div>
-              </label>
+        <div className="search-card__meta" style={{ marginBottom: "1rem" }}>
+          <span>Total weight: {totalWeight.toFixed(2)}</span>
+        </div>
 
-              <div className="search-card__meta">
-                <span>Total weight: {totalWeight.toFixed(2)}</span>
-                <span>Default weights update automatically when the purpose changes.</span>
-              </div>
-
-              <div className="slider-stack slider-stack--spacious">
-                {criteriaMeta.map((criterion) => (
-                  <div key={criterion.key} className="slider-card">
-                    <div className="slider-card__top">
-                      <div className="slider-card__label">
-                        <span>{criterion.label}</span>
-                        <div className="tooltip-wrap">
-                          <Info size={15} />
-                          <div className="tooltip-bubble">{criterion.tooltip}</div>
-                        </div>
-                      </div>
-                      <strong>{weights[criterion.key].toFixed(2)}</strong>
-                    </div>
-
-                    <input
-                      className="weight-slider"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={weights[criterion.key]}
-                      onChange={(event) => handleWeightChange(criterion.key, event.target.value)}
-                      style={{ "--slider-fill": `${weights[criterion.key] * 100}%` }}
-                    />
+        <div className="slider-stack slider-stack--spacious" style={{ flexGrow: 1, overflowY: "auto", paddingRight: "0.5rem", marginBottom: "1rem" }}>
+          {criteriaMeta.map((criterion) => (
+            <div key={criterion.key} className="slider-card" style={{ marginBottom: "0.75rem" }}>
+              <div className="slider-card__top">
+                <div className="slider-card__label">
+                  <span>{criterion.label}</span>
+                  <div className="tooltip-wrap">
+                    <Info size={15} />
+                    <div className="tooltip-bubble">{criterion.tooltip}</div>
                   </div>
-                ))}
-              </div>
-
-              <div className="search-actions">
-                <button className="primary-button" type="button" onClick={calculateSuitability} disabled={isComputing}>
-                  {isComputing ? 'Calculating Spatial Overlays...' : 'Calculate Suitability'}
-                </button>
-                <button className="secondary-button" type="button" onClick={resetWeights}>
-                  <RotateCcw size={16} />
-                  Reset Weights
-                </button>
-              </div>
-
-              <div className="workspace-actions">
-                <button className="primary-button" type="button" onClick={downloadPdf}>
-                  <Download size={16} />
-                  Download PDF
-                </button>
-              </div>
-
-              {result ? (
-                <div className="result-card">
-                  <span className="result-card__label">Suitability Result</span>
-                  <div className="result-card__row">
-                    <strong>{result.score.toFixed(2)}</strong>
-                    <span className={`result-pill result-pill--${result.category.toLowerCase()}`}>
-                      {result.category}
-                    </span>
-                  </div>
-                  <p>
-                    Best matching area: {result.zone}. The score is derived from normalized
-                    criterion values combined with your selected weights for {purpose.toLowerCase()}.
-                  </p>
                 </div>
-              ) : null}
+                <strong>{weights[criterion.key].toFixed(2)}</strong>
+              </div>
+              <input
+                className="weight-slider"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={weights[criterion.key]}
+                onChange={(event) => handleWeightChange(criterion.key, event.target.value)}
+                style={{ "--slider-fill": `${weights[criterion.key] * 100}%` }}
+              />
             </div>
-          </aside>
+          ))}
+        </div>
 
-          <div className="workspace-map-column">
-            <div className="workspace-map-card">
-              <div className="workspace-map-card__header">
-                <div>
-                  <h3>Interactive suitability map</h3>
-                  <p>
-                    Switch between OpenStreetMap and satellite view. Boundary polygons show the areas
-                    that best match the selected purpose and weighted criteria.
-                  </p>
-                </div>
+        <div className="search-actions" style={{ marginTop: "auto", gap: "0.75rem" }}>
+          <button className="primary-button" type="button" onClick={calculateSuitability} disabled={isComputing} style={{ width: "100%", justifyContent: "center" }}>
+            {isComputing ? 'Calculating...' : 'Calculate Suitability'}
+          </button>
+          <button className="secondary-button" type="button" onClick={resetWeights} style={{ width: "100%", justifyContent: "center" }}>
+            <RotateCcw size={16} />
+            Reset Weights
+          </button>
+        </div>
+      </aside>
 
-                <div className="map-legend">
-                  <span className="info-chip">
-                    <LocateFixed size={16} />
-                    Chennai focus
-                  </span>
-                  <span><i style={{ background: "#22c55e" }} /> High</span>
-                  <span><i style={{ background: "#f59e0b" }} /> Moderate</span>
-                  <span><i style={{ background: "#ef4444" }} /> Low</span>
-                </div>
-                
-                {/* Dynamically expanding Legend System for Layer checking */}
-                {activeLayers.has("☁️ Live Data: AQI Suitability Hex-Grid") && (
-                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
-                    <span className="info-chip">Air Quality Suitability</span>
-                    <span><i style={{ background: "#22c55e", opacity: 0.8 }} /> Excellent</span>
-                    <span><i style={{ background: "#84cc16", opacity: 0.8 }} /> Good</span>
-                    <span><i style={{ background: "#f59e0b", opacity: 0.8 }} /> Satisfactory</span>
-                    <span><i style={{ background: "#ef4444", opacity: 0.8 }} /> Moderate/Poor</span>
-                    <span><i style={{ background: "#b91c1c", opacity: 0.8 }} /> Unhealthy</span>
-                  </div>
-                )}
-                
-                {activeLayers.has("☁️ Live Data: CGWB Water Quality") && (
-                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
-                    <span className="info-chip">Water Salinity (TDS)</span>
-                    <span><i style={{ background: "#0ea5e9", opacity: 0.8, borderRadius: "50%" }} /> Fresh Recharge</span>
-                    <span><i style={{ background: "#ef4444", opacity: 0.8, borderRadius: "50%" }} /> Saline / Hard Water</span>
-                  </div>
-                )}
-                
-                {activeLayers.has("☁️ Live Data: Flood Risk Hotspots") && (
-                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
-                    <span className="info-chip">Stagnation Risk</span>
-                    <span><i style={{ background: "#1e3a8a", opacity: 0.8, borderRadius: "50%" }} /> Low Risk</span>
-                    <span><i style={{ background: "#93c5fd", opacity: 0.8, borderRadius: "50%" }} /> Frequent Logging</span>
-                  </div>
-                )}
-                
-                {activeLayers.has("☁️ Live Data: Road Accessibility Network") && (
-                  <div className="map-legend map-legend--dynamic" style={{ marginTop: "8px", borderTop: "1px dashed rgba(255,255,255,0.1)", paddingTop: "8px" }}>
-                    <span className="info-chip">Road Network Accessibility</span>
-                    <span><i style={{ background: "#22c55e", height: "3px", width: "16px", borderRadius: "1px", position: "relative", top: "-2px" }} /> High Connectivity</span>
-                    <span><i style={{ background: "#f59e0b", height: "3px", width: "16px", borderRadius: "1px", position: "relative", top: "-2px" }} /> Moderate Connectivity</span>
-                  </div>
-                )}
+      {/* ------------------------ CENTER PANEL ------------------------ */}
+      <main className="dashboard-panel dashboard-panel--center">
+        <MapContainer
+          center={chennaiCenter}
+          zoom={11}
+          scrollWheelZoom
+          className="workspace-map"
+          style={{ height: "100%", width: "100%", zIndex: 1 }}
+        >
+          <MapResizeHandler />
+          <MapEventHandler setActiveLayers={setActiveLayers} />
+          <LayersControl position="topright">
+            <LayersControl.BaseLayer checked name="OpenStreetMap">
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+            </LayersControl.BaseLayer>
+            <LayersControl.BaseLayer name="Satellite">
+              <TileLayer
+                attribution="Tiles &copy; Esri"
+                url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              />
+            </LayersControl.BaseLayer>
 
-              </div>
+            {rankedZones.length > 0 && (
+              <LayersControl.Overlay checked name="Suitability Heatmap Grid">
+                <LayerGroup>
+                  {rankedZones.map((zone) => (
+                    <Polygon
+                      key={zone.id}
+                      positions={zone.polygon}
+                      pathOptions={{
+                        color: zone.tone.color,
+                        fillColor: zone.tone.color,
+                        fillOpacity: 0.4,
+                        weight: 1,
+                      }}
+                    >
+                      <Popup>
+                        <strong>{zone.resolvedName || zone.name}</strong><br />
+                        Suitability: {zone.score.toFixed(2)}
+                      </Popup>
+                    </Polygon>
+                  ))}
+                </LayerGroup>
+              </LayersControl.Overlay>
+            )}
 
-              <div className="workspace-map-frame">
-                <div className="workspace-map-shell">
-                  <MapContainer
-                    center={chennaiCenter}
-                    zoom={11}
-                    scrollWheelZoom
-                    className="workspace-map"
-                    style={{ height: "100%", width: "100%" }}
-                  >
-                    <MapResizeHandler />
-                    <MapEventHandler setActiveLayers={setActiveLayers} />
-                    <LayersControl position="topright">
-                      <LayersControl.BaseLayer checked name="OpenStreetMap">
-                        <TileLayer
-                          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                        />
-                      </LayersControl.BaseLayer>
-                      <LayersControl.BaseLayer name="Satellite">
-                        <TileLayer
-                          attribution="Tiles &copy; Esri"
-                          url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                        />
-                      </LayersControl.BaseLayer>
+            {apiData.population && (
+              <LayersControl.Overlay name="☁️ Data: Population Density Nodes">
+                <GeoJSON 
+                  data={apiData.population} 
+                  pointToLayer={(feature, latlng) => {
+                     return window.L.circleMarker(latlng, {
+                       radius: 8, fillColor: "#ef4444", color: "#b91c1c", weight: 2, fillOpacity: 0.7
+                     }).bindPopup(`<strong>${feature.properties.microZoneName}</strong><br/>Pop: ${feature.properties.projectedPopulation}`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
 
-                      {visibleZones.map((zone) => (
-                        <LayersControl.Overlay key={zone.id} checked name={zone.name}>
-                          <Polygon
-                            positions={zone.polygon}
-                            pathOptions={{
-                              color: zone.tone.color,
-                              fillColor: zone.tone.color,
-                              fillOpacity: 0.3,
-                              weight: 3,
-                            }}
-                          >
-                            <Popup>
-                              <strong>{zone.name}</strong>
-                              <br />
-                              Suitability: {zone.score.toFixed(2)}
-                              <br />
-                              {zone.summary}
-                            </Popup>
-                          </Polygon>
-                        </LayersControl.Overlay>
-                      ))}
+            {apiData.roads && (
+              <LayersControl.Overlay name="☁️ Data: Road Accessibility Network">
+                <GeoJSON 
+                  data={apiData.roads} 
+                  style={(feature) => ({
+                    color: feature.properties.accessibilityScore > 85 ? "#22c55e" : "#f59e0b",
+                    weight: feature.properties.accessibilityScore > 85 ? 4 : 2,
+                    opacity: 0.8
+                  })}
+                  onEachFeature={(feature, layer) => {
+                    layer.bindPopup(`<strong>${feature.properties.name}</strong><br/>Score: ${feature.properties.accessibilityScore}`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
 
-                      {/* Dynamic API Layers injected perfectly from the Backend Server */}
-                      {apiData.population && (
-                        <LayersControl.Overlay name="☁️ Live Data: Population Density Nodes">
-                          <GeoJSON 
-                            data={apiData.population} 
-                            pointToLayer={(feature, latlng) => {
-                               // Make it a beautiful red circle marker
-                               return window.L.circleMarker(latlng, {
-                                 radius: 8,
-                                 fillColor: "#ef4444",
-                                 color: "#b91c1c",
-                                 weight: 2,
-                                 opacity: 1,
-                                 fillOpacity: 0.7
-                               }).bindPopup(`<strong>${feature.properties.microZoneName}</strong><br/>Category: ${feature.properties.demandCategory}<br/>Projected Population: ${feature.properties.projectedPopulation}`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
+            {apiData.aqi && (
+              <LayersControl.Overlay name="☁️ Data: AQI Suitability Hex-Grid">
+                <GeoJSON 
+                  data={apiData.aqi} 
+                  style={(feature) => {
+                    const colors = ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#22c55e"];
+                    return {
+                      color: colors[feature.properties.suitabilityScore - 1] || "#888",
+                      weight: 1, fillOpacity: 0.4
+                    };
+                  }}
+                  onEachFeature={(feature, layer) => {
+                    layer.bindPopup(`<strong>AQI Simulated Region</strong><br/>Score: ${feature.properties.suitabilityScore}/5`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
 
-                      {apiData.roads && (
-                        <LayersControl.Overlay name="☁️ Live Data: Road Accessibility Network">
-                          <GeoJSON 
-                            data={apiData.roads} 
-                            style={(feature) => ({
-                              color: feature.properties.accessibilityScore > 85 ? "#22c55e" : "#f59e0b",
-                              weight: feature.properties.accessibilityScore > 85 ? 4 : 2,
-                              opacity: 0.8
-                            })}
-                            onEachFeature={(feature, layer) => {
-                              layer.bindPopup(`<strong>${feature.properties.name}</strong><br/>Class: ${feature.properties.roadClass}<br/>Score: ${feature.properties.accessibilityScore}`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
+            {apiData.landCost && (
+              <LayersControl.Overlay name="☁️ Data: Land Cost Points">
+                <GeoJSON 
+                  data={apiData.landCost} 
+                  pointToLayer={(feature, latlng) => {
+                     return window.L.circleMarker(latlng, {
+                       radius: 6, fillColor: "#3b82f6", color: "#1d4ed8", weight: 2, fillOpacity: 0.8
+                     }).bindPopup(`<strong>Micro-Market</strong><br/>Price: ${feature.properties.priceFormatted} per sq.ft`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
 
-                      {apiData.aqi && (
-                        <LayersControl.Overlay name="☁️ Live Data: AQI Suitability Hex-Grid">
-                          <GeoJSON 
-                            data={apiData.aqi} 
-                            style={(feature) => {
-                              // Color code based on Suitability 1-5
-                              const colors = ["#b91c1c", "#ef4444", "#f59e0b", "#84cc16", "#22c55e"];
-                              return {
-                                color: colors[feature.properties.suitabilityScore - 1] || "#888",
-                                weight: 1,
-                                fillOpacity: 0.4
-                              };
-                            }}
-                            onEachFeature={(feature, layer) => {
-                              layer.bindPopup(`<strong>AQI Simulated Region</strong><br/>Air Quality: ${feature.properties.simulatedAqiRange}<br/>Suitability Score: ${feature.properties.suitabilityScore}/5`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
+            {apiData.water && (
+              <LayersControl.Overlay name="☁️ Data: CGWB Water Quality">
+                <GeoJSON 
+                  data={apiData.water} 
+                  pointToLayer={(feature, latlng) => {
+                     return window.L.circleMarker(latlng, {
+                       radius: 7, fillColor: feature.properties.suitabilityScore < 3 ? "#ef4444" : "#0ea5e9", color: "#fff", weight: 2, fillOpacity: 0.9
+                     }).bindPopup(`<strong>CGWB Observation Point</strong><br/>TDS: ${feature.properties.totalDissolvedSolids_mgL} mg/L`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
 
-                      {apiData.landCost && (
-                        <LayersControl.Overlay name="☁️ Live Data: Land Cost Points">
-                          <GeoJSON 
-                            data={apiData.landCost} 
-                            pointToLayer={(feature, latlng) => {
-                               return window.L.circleMarker(latlng, {
-                                 radius: 6,
-                                 fillColor: "#3b82f6",
-                                 color: "#1d4ed8",
-                                 weight: 2,
-                                 fillOpacity: 0.8
-                               }).bindPopup(`<strong>Micro-Market</strong><br/>Anchored to: ${feature.properties.closestAnchor}<br/>Price: ${feature.properties.priceFormatted} per sq.ft <br/>Suitability: ${feature.properties.suitabilityScore}/5`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
+            {apiData.flood && (
+              <LayersControl.Overlay name="☁️ Data: Flood Risk Hotspots">
+                <GeoJSON 
+                  data={apiData.flood} 
+                  pointToLayer={(feature, latlng) => {
+                     return window.L.circleMarker(latlng, {
+                       radius: 5, fillColor: feature.properties.suitabilityScore < 3 ? "#93c5fd" : "#1e40af", color: "#1e3a8a", weight: 1, fillOpacity: 0.8
+                     }).bindPopup(`<strong>Reported Stagnation</strong><br/>Risk: ${feature.properties.riskLevel}`);
+                  }}
+                />
+              </LayersControl.Overlay>
+            )}
+          </LayersControl>
+        </MapContainer>
+      </main>
 
-                      {apiData.water && (
-                        <LayersControl.Overlay name="☁️ Live Data: CGWB Water Quality">
-                          <GeoJSON 
-                            data={apiData.water} 
-                            pointToLayer={(feature, latlng) => {
-                               return window.L.circleMarker(latlng, {
-                                 radius: 7,
-                                 fillColor: feature.properties.suitabilityScore < 3 ? "#ef4444" : "#0ea5e9",
-                                 color: "#fff",
-                                 weight: 2,
-                                 fillOpacity: 0.9
-                               }).bindPopup(`<strong>CGWB Observation Point</strong><br/>TDS: ${feature.properties.totalDissolvedSolids_mgL} mg/L<br/>Quality: ${feature.properties.qualityCategory}`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
+      {/* ------------------------ RIGHT PANEL ------------------------ */}
+      <aside className="dashboard-panel dashboard-panel--right" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", height: "100%" }}>
+        
+        {/* Dynamic Legends */}
+        <div className="workspace-card__heading" style={{ marginBottom: "1.25rem" }}>
+          <LocateFixed size={20} />
+          <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Map Legend</h2>
+        </div>
 
-                      {apiData.flood && (
-                        <LayersControl.Overlay name="☁️ Live Data: Flood Risk Hotspots">
-                          <GeoJSON 
-                            data={apiData.flood} 
-                            pointToLayer={(feature, latlng) => {
-                               return window.L.circleMarker(latlng, {
-                                 radius: 5,
-                                 fillColor: feature.properties.suitabilityScore < 3 ? "#93c5fd" : "#1e40af",
-                                 color: "#1e3a8a",
-                                 weight: 1,
-                                 fillOpacity: 0.8
-                               }).bindPopup(`<strong>Reported Stagnation</strong><br/>Risk: ${feature.properties.riskLevel}<br/>History: ${feature.properties.historicalStagnation}`);
-                            }}
-                          />
-                        </LayersControl.Overlay>
-                      )}
-                    </LayersControl>
-                  </MapContainer>
-                </div>
-              </div>
-
-              <div className="workspace-map-card__footer">
-                <MapIcon size={16} />
-                <span>Prototype delineation based on selected weights and sample urban suitability layers.</span>
-              </div>
-            </div>
+        <div style={{ background: "rgba(8, 21, 33, 0.6)", border: "1px solid rgba(255, 255, 255, 0.1)", padding: "1rem", borderRadius: "8px", marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "0.5rem" }}>
+            Suitability Core Layer
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#22c55e", width: "12px", height: "12px", borderRadius: "2px" }} /> Excellent</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#84cc16", width: "12px", height: "12px", borderRadius: "2px" }} /> Good</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#f59e0b", width: "12px", height: "12px", borderRadius: "2px" }} /> Moderate</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#f97316", width: "12px", height: "12px", borderRadius: "2px" }} /> Fair</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#ef4444", width: "12px", height: "12px", borderRadius: "2px" }} /> Poor</div>
           </div>
         </div>
 
-        {isFloatingResultOpen ? (
-          <div className="floating-result-box">
-            <button
-              className="floating-result-box__close"
-              type="button"
-              aria-label="Close top suitable area panel"
-              onClick={() => setIsFloatingResultOpen(false)}
-            >
-              <X size={16} />
-            </button>
-            <span className="floating-result-box__label">Top Suitable Area</span>
-            <strong>{result?.zone ?? bestZone?.name ?? "Calculating..."}</strong>
-            <div className="floating-result-box__meta">
-              <span>{(result?.score ?? bestZone?.score ?? 0).toFixed(2)}</span>
-              <span className={`result-pill result-pill--${(result?.category ?? getCategory(bestZone?.score ?? 0)).toLowerCase()}`}>
-                {result?.category ?? getCategory(bestZone?.score ?? 0)}
+        {activeLayers.has("☁️ Data: AQI Suitability Hex-Grid") && (
+          <div style={{ background: "rgba(8, 21, 33, 0.6)", border: "1px solid rgba(255, 255, 255, 0.1)", padding: "1rem", borderRadius: "8px", marginBottom: "1rem" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "0.5rem" }}>
+              Air Quality Density
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#22c55e", width: "12px", height: "12px", borderRadius: "2px" }} /> Target</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#b91c1c", width: "12px", height: "12px", borderRadius: "2px" }} /> Unhealthy</div>
+            </div>
+          </div>
+        )}
+        
+        {activeLayers.has("☁️ Data: CGWB Water Quality") && (
+          <div style={{ background: "rgba(8, 21, 33, 0.6)", border: "1px solid rgba(255, 255, 255, 0.1)", padding: "1rem", borderRadius: "8px", marginBottom: "1rem" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "0.5rem" }}>
+              Water Salinity Points
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#0ea5e9", width: "12px", height: "12px", borderRadius: "50%" }} /> Fresh Flow Recharge</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#ef4444", width: "12px", height: "12px", borderRadius: "50%" }} /> Saline Contamination</div>
+            </div>
+          </div>
+        )}
+        
+        {activeLayers.has("☁️ Data: Flood Risk Hotspots") && (
+           <div style={{ background: "rgba(8, 21, 33, 0.6)", border: "1px solid rgba(255, 255, 255, 0.1)", padding: "1rem", borderRadius: "8px", marginBottom: "1rem" }}>
+             <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "0.5rem" }}>
+               Flood Hotspots
+             </div>
+             <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#1e3a8a", width: "12px", height: "12px", borderRadius: "50%" }} /> Safe Evaluation</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#93c5fd", width: "12px", height: "12px", borderRadius: "50%" }} /> Recurring Floods</div>
+             </div>
+           </div>
+        )}
+        
+        {activeLayers.has("☁️ Data: Road Accessibility Network") && (
+          <div style={{ background: "rgba(8, 21, 33, 0.6)", border: "1px solid rgba(255, 255, 255, 0.1)", padding: "1rem", borderRadius: "8px", marginBottom: "1rem" }}>
+            <div style={{ fontSize: "0.75rem", fontWeight: "700", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.1)", paddingBottom: "0.5rem" }}>
+              Road Links
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#22c55e", width: "20px", height: "4px", borderRadius: "2px" }} /> Super Corridor</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.85rem" }}><i style={{ background: "#f59e0b", width: "20px", height: "4px", borderRadius: "2px" }} /> Standard Link</div>
+            </div>
+          </div>
+        )}
+
+        {/* Results Block (Moved to Middle) */}
+        <div className="workspace-card__heading" style={{ marginTop: "2rem", marginBottom: "1rem" }}>
+          <MapIcon size={20} />
+          <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Suitability Report</h2>
+        </div>
+        
+        {result ? (
+          <div className="result-card" style={{ marginTop: 0 }}>
+            <span className="result-card__label" style={{ display: "block", marginBottom: "0.5rem" }}>Top Output</span>
+            <div className="result-card__row" style={{ marginTop: 0 }}>
+              <strong>{result.score.toFixed(2)}</strong>
+              <span className={`result-pill result-pill--${result.category.toLowerCase()}`}>
+                {result.category}
               </span>
             </div>
-            <p>{bestZone?.summary}</p>
-            <p className="workspace-muted">Current focus: {purpose}</p>
+            <div style={{ marginTop: "1rem" }}>
+              <strong style={{ fontSize: "1.1rem" }}>{result.zone}</strong>
+              {result.coordinates && (
+                <div style={{ fontSize: "0.85rem", opacity: 0.8, marginTop: "0.35rem" }}>
+                  Lat: {result.coordinates.lat.toFixed(4)}<br/>
+                  Lng: {result.coordinates.lng.toFixed(4)}
+                </div>
+              )}
+            </div>
           </div>
-        ) : null}
-      </div>
-    </SectionReveal>
+        ) : (
+          <div className="result-card" style={{ marginTop: 0, opacity: 0.6, display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+             <span>No area analyzed yet.</span>
+             <small>Click 'Calculate Suitability' to generate a report.</small>
+          </div>
+        )}
+
+        {/* Spacer to push PDF directly to the bottom */}
+        <div style={{ flexGrow: 1 }}></div>
+
+        {/* PDF Button (Moved to Bottom) */}
+        <button className="primary-button" type="button" onClick={downloadPdf} disabled={!result} style={{ width: "100%", justifyContent: "center", marginTop: "1rem", opacity: result ? 1 : 0.5 }}>
+          <Download size={16} />
+          Export PDF Report
+        </button>
+      </aside>
+    </div>
   );
 }
 

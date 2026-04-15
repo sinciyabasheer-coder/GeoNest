@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDownToLine, Coins, Droplets, Route, Users, Wind } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, Coins, Droplets, Route, Users, Wind, FileSpreadsheet } from "lucide-react";
 import SectionReveal from "./SectionReveal";
 
 const datasets = [
@@ -42,18 +42,49 @@ const datasets = [
 
 function DataProducts() {
   
-  // Triggers a real browser download from our Node.js Backend 
-  const handleDownload = async (event, datasetId) => {
+  const handleDownload = async (event, datasetId, format) => {
     event.preventDefault();
     try {
       const response = await fetch(`http://localhost:3000/api/datasets/${datasetId}`);
       if (!response.ok) throw new Error("Dataset not ready");
       
-      const blob = await response.blob();
+      let blob;
+      let filename;
+
+      if (format === 'geojson') {
+        blob = await response.blob();
+        filename = `geonest_${datasetId}.geojson`;
+      } else if (format === 'excel') {
+        const jsonData = await response.json();
+        const features = jsonData.features || [];
+        
+        if (features.length === 0) throw new Error("No data found");
+        
+        // Dynamically strip properties and create MS Excel compatible CSV
+        const headers = Object.keys(features[0].properties);
+        let csvContent = headers.join(",") + "\n";
+        
+        features.forEach(f => {
+          const row = headers.map(header => {
+            let val = f.properties[header];
+            if (val === null || val === undefined) val = "";
+            val = String(val).replace(/"/g, '""');
+            if (val.includes(",") || val.includes("\n") || val.includes("\"")) {
+              val = `"${val}"`;
+            }
+            return val;
+          });
+          csvContent += row.join(",") + "\n";
+        });
+        
+        blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        filename = `geonest_${datasetId}.csv`;
+      }
+
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `geonest_${datasetId}.geojson`;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -84,10 +115,17 @@ function DataProducts() {
               </div>
               <h3>{title}</h3>
               <p>{description}</p>
-              <a className="secondary-button" href="/" onClick={(event) => handleDownload(event, id)}>
-                <ArrowDownToLine size={16} />
-                Download GeoJSON
-              </a>
+              
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                <a className="secondary-button" href="/" onClick={(event) => handleDownload(event, id, 'geojson')} style={{ flex: 1, padding: '8px 4px', fontSize: '0.85rem' }}>
+                  <ArrowDownToLine size={15} />
+                  GeoJSON
+                </a>
+                <a className="secondary-button" href="/" onClick={(event) => handleDownload(event, id, 'excel')} style={{ flex: 1, padding: '8px 4px', fontSize: '0.85rem' }}>
+                  <FileSpreadsheet size={15} />
+                  Excel (CSV)
+                </a>
+              </div>
             </article>
           ))}
         </div>

@@ -1,7 +1,7 @@
-import { ArrowRight, CheckCircle2, Layers3, LocateFixed } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import SectionReveal from "./SectionReveal";
 
-function Home({ onNavigate }) {
+function Home() {
   return (
     <SectionReveal id="home" className="hero-section">
       <div className="section-shell hero-grid hero-grid--intro">
@@ -20,26 +20,16 @@ function Home({ onNavigate }) {
             and infrastructure signals tailored for urban planning and smart site selection.
           </p>
 
-          <div className="hero-actions">
-            <button className="primary-button" type="button" onClick={() => onNavigate("find-your-space")}>
-              Find Ideal Location
-              <ArrowRight size={18} />
-            </button>
-            <div className="hero-stat">
-              <CheckCircle2 size={18} />
-              <span>Decision-support workflow available in the Find Your Space section.</span>
-            </div>
-          </div>
-
-          <div className="hero-highlights">
-            <div className="info-chip">
-              <Layers3 size={18} />
-              <span>Multi-criteria urban suitability analysis</span>
-            </div>
-            <div className="info-chip">
-              <LocateFixed size={18} />
-              <span>Map-based planning for professional GIS workflows</span>
-            </div>
+          <div className="hero-actions" style={{ justifyContent: 'center', marginTop: '3rem' }}>
+            <a 
+              className="primary-button" 
+              href="/app" 
+              target="_blank" 
+              style={{ fontSize: '1.25rem', padding: '1rem 2.5rem', minHeight: '4.5rem', borderRadius: '100px', boxShadow: '0 20px 40px rgba(45, 212, 191, 0.4)' }}
+            >
+              Find Your Space
+              <ArrowRight size={24} />
+            </a>
           </div>
         </div>
       </div>

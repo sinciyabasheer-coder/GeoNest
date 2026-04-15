@@ -33,7 +33,7 @@ function About() {
     <SectionReveal id="about" className="content-section">
       <div className="section-shell">
         <div className="section-heading">
-          <span className="eyebrow">About GeoSuit</span>
+          <span className="eyebrow">About GeoNest</span>
           <h2>Purpose-built for urban suitability analysis and informed geospatial decisions.</h2>
         </div>
 

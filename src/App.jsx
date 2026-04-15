@@ -1,3 +1,4 @@
+import { Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Home from "./components/Home";
 import About from "./components/About";
@@ -16,25 +17,33 @@ const navItems = [
 
 function App() {
   const scrollToSection = (sectionId) => {
+    if (sectionId === "find-your-space") {
+      window.open("/app", "_blank");
+      return;
+    }
+    
     const section = document.getElementById(sectionId);
-
     if (section) {
       section.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
   return (
-    <div className="app-shell">
-      <Navbar items={navItems} onNavigate={scrollToSection} />
-      <main>
-        <Home onNavigate={scrollToSection} />
-        <About />
-        <FindYourSpace />
-        <DataProducts />
-        <Contact />
-      </main>
-      <Footer />
-    </div>
+    <Routes>
+      <Route path="/" element={
+        <div className="app-shell">
+          <Navbar items={navItems} onNavigate={scrollToSection} />
+          <main>
+            <Home />
+            <About />
+            <DataProducts />
+            <Contact />
+          </main>
+          <Footer />
+        </div>
+      } />
+      <Route path="/app" element={<FindYourSpace />} />
+    </Routes>
   );
 }
 

@@ -1,8 +1,7 @@
 const turf = require('@turf/turf');
 const GlobalMapCache = require('../state/globalMapCache');
-const chennaiZonePolygons = require('../data/chennaiZonePolygons');
 
-// Advanced Spatial Aggregation Engine
+// Advanced Spatial Aggregation Engine - Choropleth Map Generator
 exports.calculateSuitability = async (req, res) => {
     try {
         const { weights } = req.body;
@@ -10,55 +9,63 @@ exports.calculateSuitability = async (req, res) => {
             return res.status(400).json({ error: "Weights matrix required" });
         }
 
-        // We will spatially aggregate the 6 cached datasets against each Chennai Zone
-        const rankedZones = chennaiZonePolygons.map(zone => {
-            // Convert zone array [lat, lng] to proper GeoJSON Polygon [[[lng, lat]]]
-            const coords = zone.polygon.map(p => [p[1], p[0]]);
-            coords.push(coords[0]); // Complete the ring
-            const turfPoly = turf.polygon([coords]);
+        // Generate dynamic Hex Grid over Chennai approx bbox
+        const bbox = [80.05, 12.85, 80.30, 13.15]; 
+        const cellSide = 1.5; // kilometers
+        const options = {units: 'kilometers'};
+        const hexGrid = turf.hexGrid(bbox, cellSide, options);
 
-            // 1. Population Aggregation (Points)
+        const rankedZones = [];
+        let hexIdCounter = 1;
+
+        for (const hex of hexGrid.features) {
+            const turfPoly = hex; // It's a GeoJSON polygon feature
+            
+            // Get centroid for reverse geocoding & display in UI
+            const centroid = turf.centroid(turfPoly);
+            const [lng, lat] = centroid.geometry.coordinates;
+
+            // 1. Population Aggregation
             let popScore = 0;
             if (GlobalMapCache.population) {
                 const ptsInside = turf.pointsWithinPolygon(GlobalMapCache.population, turfPoly);
                 if (ptsInside.features.length > 0) {
                     const avgPop = ptsInside.features.reduce((acc, feat) => acc + feat.properties.estimatedPopulationCurrent, 0) / ptsInside.features.length;
-                    popScore = Math.min(avgPop / 400000, 1.0); // Normalize based on 400k max
+                    popScore = Math.min(avgPop / 400000, 1.0);
                 }
             }
 
-            // 2. Road Accessibility (Lines) -> We check center of roads falling inside
+            // 2. Road Accessibility
             let roadScore = 0;
             if (GlobalMapCache.roads) {
                 let totalS = 0;
                 let count = 0;
                 GlobalMapCache.roads.features.forEach(road => {
-                    // Quick optimization: get midpoint of linestring
                     const centerPoint = turf.center(road);
                     if (turf.booleanPointInPolygon(centerPoint, turfPoly)) {
                         totalS += road.properties.accessibilityScore;
                         count++;
                     }
                 });
-                roadScore = count > 0 ? (totalS / count) / 100 : 0; // Normalize 0-1
+                roadScore = count > 0 ? (totalS / count) / 100 : 0;
             }
 
-            // 3. AQI Suitability (Hexagons)
+            // 3. AQI Suitability (Intersecting Hexagons)
             let aqiScore = 0;
             if (GlobalMapCache.aqi) {
                 let totalS = 0;
                 let count = 0;
-                GlobalMapCache.aqi.features.forEach(hex => {
-                    const centerPoint = turf.center(hex);
+                GlobalMapCache.aqi.features.forEach(gridHex => {
+                    const centerPoint = turf.center(gridHex);
                     if (turf.booleanPointInPolygon(centerPoint, turfPoly)) {
-                        totalS += hex.properties.suitabilityScore; // 1 to 5
+                        totalS += gridHex.properties.suitabilityScore; // 1 to 5
                         count++;
                     }
                 });
                 aqiScore = count > 0 ? (totalS / count) / 5 : 0;
             }
 
-            // 4. Land Cost (Points)
+            // 4. Land Cost
             let landScore = 0;
             if (GlobalMapCache.landCost) {
                 const ptsInside = turf.pointsWithinPolygon(GlobalMapCache.landCost, turfPoly);
@@ -68,7 +75,7 @@ exports.calculateSuitability = async (req, res) => {
                 }
             }
 
-            // 5. Water Quality (Points)
+            // 5. Water Quality
             let waterScore = 0;
             if (GlobalMapCache.water) {
                 const ptsInside = turf.pointsWithinPolygon(GlobalMapCache.water, turfPoly);
@@ -78,7 +85,7 @@ exports.calculateSuitability = async (req, res) => {
                 }
             }
 
-            // 6. Flood Risk (Points)
+            // 6. Flood Risk
             let floodScore = 0;
             if (GlobalMapCache.flood) {
                 const ptsInside = turf.pointsWithinPolygon(GlobalMapCache.flood, turfPoly);
@@ -86,41 +93,43 @@ exports.calculateSuitability = async (req, res) => {
                     const avgS = ptsInside.features.reduce((acc, feat) => acc + feat.properties.suitabilityScore, 0) / ptsInside.features.length;
                     floodScore = avgS / 5;
                 } else {
-                    // No reported stagnation points inside poly = safe
-                    floodScore = 1.0; 
+                    floodScore = 1.0; // Safe
                 }
             }
 
-            // --- Construct Final Spatially Computed Object ---
-            const criteriaScores = {
-                population: popScore,
-                roadAccessibility: roadScore,
-                landCost: landScore,
-                airQuality: aqiScore,
-                waterQuality: waterScore,
-                floodRisk: floodScore
-            };
+            // Only score hexagons that hit at least one key dataset (so we don't map the ocean entirely)
+            if (roadScore > 0 || popScore > 0 || landScore > 0 || waterScore > 0) {
+                const criteriaScores = {
+                    population: popScore,
+                    roadAccessibility: roadScore,
+                    landCost: landScore,
+                    airQuality: aqiScore,
+                    waterQuality: waterScore,
+                    floodRisk: floodScore
+                };
 
-            // Calculate final weighted score
-            let finalScore = 0;
-            Object.keys(weights).forEach(key => {
-                if (criteriaScores[key]) {
-                    finalScore += criteriaScores[key] * weights[key];
-                }
-            });
+                let finalScore = 0;
+                Object.keys(weights).forEach(key => {
+                    if (criteriaScores[key]) {
+                        finalScore += criteriaScores[key] * weights[key];
+                    }
+                });
 
-            return {
-                ...zone,
-                score: finalScore,
-                criteriaScores
-            };
-        });
+                rankedZones.push({
+                    id: `hex-${hexIdCounter++}`,
+                    name: `Hex Zone [${lat.toFixed(3)}, ${lng.toFixed(3)}]`,
+                    coordinates: { lat, lng },
+                    polygon: turfPoly.geometry.coordinates[0].map(c => [c[1], c[0]]), // Leaflet expects [lat, lng]
+                    score: finalScore,
+                    criteriaScores
+                });
+            }
+        }
 
-        // Sort Highest to Lowest
         rankedZones.sort((a, b) => b.score - a.score);
 
         return res.json({
-            message: "Mathematically intersected against 6 real-time spatial layers",
+            message: "Mathematically intersected against a live 1.5km hexagonal Choropleth grid",
             zones: rankedZones
         });
 
