@@ -184,7 +184,7 @@ function FindYourSpace() {
   useEffect(() => {
     const fetchBackendData = async () => {
       try {
-        const API_BASE = import.meta.env.VITE_API_URL || "/api";
+        const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : "/api";
         const baseURL = `${API_BASE}/datasets`;
         
         // Fetch sequentially or in parallel; parallel is faster
@@ -244,7 +244,7 @@ function FindYourSpace() {
   const calculateSuitability = async () => {
     setIsComputing(true);
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || "/api";
+      const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : "/api";
       const res = await axios.post(`${API_BASE}/suitability/calculate`, {
         weights: weights
       });
@@ -280,7 +280,7 @@ function FindYourSpace() {
         setIsFloatingResultOpen(true);
       }
     } catch (err) {
-      const API_BASE = import.meta.env.VITE_API_URL || "/api";
+      const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : "/api";
       alert(`API Connection Failed!\nAttempted to reach: ${API_BASE}\n\nIf the URL above says '/api', Vercel did not detect your environment variable. You must REDEPLOY in Vercel.\n\nRaw Error: ${err.message}`);
       console.error(err);
     } finally {
