@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const dotenv = require('dotenv');
 const datasetRoutes = require('./routes/datasets');
 const suitabilityRoutes = require('./routes/suitability');
@@ -35,6 +36,14 @@ app.get('/api/proxy/map', async (req, res) => {
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'GeoNest Backend API is running' });
+});
+
+// Full-Stack Monolithic Deployment: Serve React Frontend
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// React Router Catch-All (always placed at the extreme bottom of routes)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 // Start server
