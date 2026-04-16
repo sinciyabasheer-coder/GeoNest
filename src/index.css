@@ -35,6 +35,10 @@ body,
   width: 100%;
 }
 
+html {
+  font-size: 90%;
+}
+
 body {
   min-width: 320px;
   overflow-x: hidden;
@@ -182,7 +186,7 @@ img {
 
 .hero-section {
   position: relative;
-  padding: calc(var(--header-height) + 3.5rem) 0 4rem;
+  padding: calc(var(--header-height) + 2.4rem) 0 3rem;
   overflow: hidden;
 }
 
@@ -737,7 +741,7 @@ img {
 
 .content-section {
   position: relative;
-  padding: 5.5rem 0;
+  padding: 4.25rem 0;
   color: var(--text-dark);
 }
 
@@ -853,11 +857,11 @@ img {
 }
 
 .content-section--contact {
-  padding-bottom: 6.5rem;
+  padding-bottom: 4.8rem;
 }
 
 .content-section--workspace {
-  padding-bottom: 5rem;
+  padding-bottom: 3.8rem;
 }
 
 .workspace-section-heading {
@@ -903,7 +907,7 @@ img {
   flex-direction: column;
   min-width: 0;
   width: 100%;
-  min-height: 540px;
+  min-height: 500px;
   overflow: hidden;
 }
 
@@ -917,7 +921,7 @@ img {
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
     rgba(9, 22, 35, 0.72);
   height: 100%;
-  min-height: 540px;
+  min-height: 500px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1088,7 +1092,7 @@ img {
 }
 
 .workspace-map-shell {
-  height: 540px;
+  height: 500px;
   width: 100%;
   position: relative;
   border-radius: 22px;
@@ -1096,7 +1100,7 @@ img {
 }
 
 .workspace-map {
-  height: 540px;
+  height: 500px;
   width: 100%;
 }
 
@@ -1328,6 +1332,10 @@ img {
     --header-height: 74px;
   }
 
+  html {
+    font-size: 88%;
+  }
+
   .section-shell,
   .site-header__inner {
     width: min(100% - 1.25rem, 1180px);
@@ -1547,7 +1555,7 @@ img {
 
 .app-dashboard-layout {
   display: grid;
-  grid-template-columns: 400px 1fr 380px;
+  grid-template-columns: 300px 1fr 280px;
   height: 100vh;
   width: 100vw;
   overflow: hidden;
@@ -1560,6 +1568,82 @@ img {
   height: 100%;
   overflow: hidden;
   border-right: 1px solid rgba(255,255,255,0.08);
+}
+.dashboard-panel--left,
+.dashboard-panel--right {
+  padding: 0.95rem;
+}
+.dashboard-panel--left .workspace-card__heading {
+  gap: 0.45rem;
+}
+.dashboard-panel--left .workspace-card__heading h2 {
+  font-size: 1rem !important;
+}
+.dashboard-panel--left .field-group {
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+.dashboard-panel--left .field-group span {
+  font-size: 0.78rem !important;
+}
+.dashboard-panel--left .field-group select {
+  min-height: 2.65rem;
+  padding: 0.7rem 2.4rem 0.7rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+.dashboard-panel--left .search-card__meta {
+  margin-top: 0.65rem;
+  margin-bottom: 0.65rem !important;
+  font-size: 0.76rem;
+}
+.dashboard-panel--left .slider-stack {
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+.dashboard-panel--left .slider-stack--spacious {
+  padding-right: 0.3rem !important;
+}
+.dashboard-panel--left .slider-card {
+  padding: 0.68rem 0.75rem;
+  border-radius: 12px;
+  margin-bottom: 0.45rem !important;
+}
+.dashboard-panel--left .slider-card__top,
+.dashboard-panel--left .slider-card__label {
+  gap: 0.45rem;
+}
+.dashboard-panel--left .slider-card__label {
+  font-size: 0.82rem;
+}
+.dashboard-panel--left .slider-card__top strong {
+  font-size: 0.82rem;
+}
+.dashboard-panel--left .tooltip-wrap svg {
+  width: 13px;
+  height: 13px;
+}
+.dashboard-panel--left .weight-slider {
+  height: 0.4rem;
+  margin-top: 0.6rem;
+}
+.dashboard-panel--left .weight-slider::-webkit-slider-thumb {
+  width: 1rem;
+  height: 1rem;
+}
+.dashboard-panel--left .weight-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+}
+.dashboard-panel--left .search-actions {
+  grid-template-columns: 1fr;
+  gap: 0.55rem !important;
+}
+.dashboard-panel--left .primary-button,
+.dashboard-panel--left .secondary-button {
+  min-height: 2.75rem;
+  padding: 0 0.95rem;
+  font-size: 0.86rem;
 }
 .dashboard-panel--right {
   overflow-y: auto;
@@ -1578,5 +1662,16 @@ img {
 .dashboard-panel::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.15);
   border-radius: 4px;
+}
+
+@media (max-width: 1180px) {
+  .app-dashboard-layout {
+    grid-template-columns: 260px 1fr 240px;
+  }
+
+  .dashboard-panel--left,
+  .dashboard-panel--right {
+    padding: 0.85rem;
+  }
 }
 

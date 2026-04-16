@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const dotenv = require('dotenv');
+const path = require('path');
 const datasetRoutes = require('./routes/datasets');
 const suitabilityRoutes = require('./routes/suitability');
 
@@ -9,6 +9,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const clientDistPath = path.join(__dirname, '..', 'dist');
 
 // Middleware
 app.use(cors());
@@ -38,15 +39,14 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'GeoNest Backend API is running' });
 });
 
-// Full-Stack Monolithic Deployment: Serve React Frontend
-app.use(express.static(path.join(__dirname, '../dist')));
+// Serve the built React frontend from the same backend URL.
+app.use(express.static(clientDistPath));
 
-// React Router Catch-All (always placed at the extreme bottom of routes)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(clientDistPath, 'index.html'));
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });

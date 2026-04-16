@@ -1,0 +1,9 @@
+services:
+  geonest:
+    build: .
+    container_name: geonest
+    ports:
+      - "8080:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000

@@ -109,18 +109,25 @@ exports.calculateSuitability = async (req, res) => {
                 };
 
                 let finalScore = 0;
+                let totalWeightSum = 0;
+
                 Object.keys(weights).forEach(key => {
+                    const weightVal = Number(weights[key]) || 0;
+                    totalWeightSum += weightVal;
                     if (criteriaScores[key]) {
-                        finalScore += criteriaScores[key] * weights[key];
+                        finalScore += criteriaScores[key] * weightVal;
                     }
                 });
+
+                // Normalize the score by the total weight sum to keep it in 0.0 - 1.0 range
+                const normalizedScore = totalWeightSum > 0 ? (finalScore / totalWeightSum) : 0;
 
                 rankedZones.push({
                     id: `hex-${hexIdCounter++}`,
                     name: `Hex Zone [${lat.toFixed(3)}, ${lng.toFixed(3)}]`,
                     coordinates: { lat, lng },
                     polygon: turfPoly.geometry.coordinates[0].map(c => [c[1], c[0]]), // Leaflet expects [lat, lng]
-                    score: finalScore,
+                    score: normalizedScore,
                     criteriaScores
                 });
             }

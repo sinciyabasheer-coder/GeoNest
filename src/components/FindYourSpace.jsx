@@ -423,7 +423,7 @@ function FindYourSpace() {
   return (
     <div className="app-dashboard-layout">
       {/* ------------------------ LEFT PANEL ------------------------ */}
-      <aside className="dashboard-panel dashboard-panel--left" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", height: "100%" }}>
+      <aside className="dashboard-panel dashboard-panel--left">
         <div className="workspace-card__heading" style={{ marginBottom: "1rem" }}>
           <Filter size={20} />
           <h2 style={{ margin: 0, fontSize: "1.2rem" }}>Analysis Controls</h2>
@@ -626,7 +626,7 @@ function FindYourSpace() {
       </main>
 
       {/* ------------------------ RIGHT PANEL ------------------------ */}
-      <aside className="dashboard-panel dashboard-panel--right" style={{ padding: "1.5rem", display: "flex", flexDirection: "column", height: "100%" }}>
+      <aside className="dashboard-panel dashboard-panel--right">
         
         {/* Dynamic Legends */}
         <div className="workspace-card__heading" style={{ marginBottom: "1.25rem" }}>
